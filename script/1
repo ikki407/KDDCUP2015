@@ -1,0 +1,122 @@
+#################################################################
+# feature engineering
+# LibFFM
+#################################################################
+
+import hashlib
+import argparse, csv, sys, pickle, collections, math
+import pandas as pd
+import numpy as np
+from sklearn.metrics import roc_curve  
+from sklearn.metrics import auc  
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+
+NR_BINS = 1000000
+def hashstr(input):
+    return str(int(hashlib.md5(input.encode('utf8')).hexdigest(), 16)%(NR_BINS-1)+1)
+
+
+fields = [ u'username', u'course_id', u'source', u'event', u'object', u'year', u'month', u'day', u'hour', u'weekday']
+
+label = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/train/truth_train.csv',header=None)
+
+def convert(src_path, dst_path, is_train):
+    with open(dst_path, 'w') as f:
+        for row in csv.DictReader(open(src_path)):
+            i = 1
+            w = 1
+            feats = []
+
+            for field in fields:
+                v = hashstr(field+'-'+row[field])
+                #print v
+                if field in [ u'username', u'course_id', u'source', u'event', u'object', u'year', u'month', u'day', u'hour', u'weekday']:
+                    feats.append('{i}:{v}:{w}'.format(i=i, v=v, w=row[field]))
+                    i += 1
+                else:
+                    feats.append('{i}:{v}:{w}'.format(i=i, v=v, w=w))
+                    i += 1
+            #print row
+
+            if is_train == True:
+                f.write('{0} {1}\n'.format(int(label[label[0]==int(row['enrollment_id'])][1]), ' '.join(feats)))
+            if is_train == False:
+                f.write('{0} {1}\n'.format(0, ' '.join(feats)))
+
+#_csv('/Users/IkkiTanaka/Documents/KDDCup/fe_train/train_fm.csv')
+#_csv('/Users/IkkiTanaka/Documents/KDDCup/fe_test/test_fm.csv')
+
+
+#train validation
+convert('/Users/IkkiTanaka/Documents/KDDCup/fe_train/train_fm.csv', '/Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/new_enr_train.ffm', True)
+convert('/Users/IkkiTanaka/Documents/KDDCup/fe_train/enr_validation.csv', '/Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/enr_validation.ffm', True)
+
+#test
+convert('/Users/IkkiTanaka/Documents/KDDCup/fe_test/test_fm.csv', '/Users/IkkiTanaka/Documents/KDDCup/fe_test/fe_ffm/new_enr_test.ffm', False)
+
+#shuffle train
+convert('/Users/IkkiTanaka/Documents/KDDCup/fe_train/shuffle_enr_train.csv', '/Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/shuffle_enr_train.ffm', True)
+
+
+#学習
+!/Users/IkkiTanaka/libffm-1.11/ffm-train -l 0.0 -k 3 -t 160 -r 0.1 -s 8 -p /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/enr_validation.ffm  /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/new_enr_train.ffm /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/model1.ffm
+
+#validation
+!/Users/IkkiTanaka/libffm-1.11/ffm-predict /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/enr_validation.ffm /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/model1.ffm /Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/pred_val.csv
+
+
+#ROC
+pred_val = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/pred_val.csv',header=None)
+y = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/fe_train/val_enr_label.csv',header=None)
+fpr, tpr, thresholds = roc_curve(y, pd.DataFrame(list(pred_val[0])), pos_label=1)  
+print auc(fpr, tpr)
+plt.plot(fpr,tpr)
+plt.show()
+
+#テスト
+!/Users/IkkiTanaka/libffm-1.11/ffm-predict /Users/IkkiTanaka/Documents/KDDCup/fe_test/fe_ffm/new_enr_test.ffm /Users/IkkiTanaka/Documents/KDDCup/fe_train/fe_ffm/model1.ffm /Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction1.csv
+
+#predictionを整える
+pred = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction1.csv',header=None)
+sample = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/sampleSubmission.csv',header=None)
+
+Pred = pd.concat([sample[0],pred[0]],axis=1)
+
+Pred.to_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction3.csv',header=None,index=False)
+
+'''
+prediction2
+0.8036998188037477
+-l 0.0 -k 3 -t 160 -r 0.1 -s 8
+
+
+
+'''
+#./perf [options] -files <targets file> /Users/IkkiTanaka/Documents/KDDCup/train/prediction1.txt
+
+#all data
+!/Users/IkkiTanaka/libffm-1.11/ffm-train -l 3.0 -k 10 -t 20 -r 0.01 -s 2 /Users/IkkiTanaka/Documents/KDDCup/fe_train/shuffle_enr_train.ffm /Users/IkkiTanaka/Documents/KDDCup/fe_train/model1_all.ffm
+
+!/Users/IkkiTanaka/libffm-1.11/ffm-predict /Users/IkkiTanaka/Documents/KDDCup/fe_train/shuffle_enr_train.ffm /Users/IkkiTanaka/Documents/KDDCup/fe_train/model1_all.ffm /Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction1_all.csv
+
+#predictionを整える
+pred = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction1_all.csv',header=None)
+sample = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/sampleSubmission.csv',header=None)
+
+Pred = pd.concat([sample[0],pred[0]],axis=1)
+
+Pred.to_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction2_all.csv',header=None,index=False)
+
+
+
+
+
+
+pred = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/pred/fe_ffm/prediction1_all.csv',header=None)
+test_ = pd.read_csv('/Users/IkkiTanaka/Documents/KDDCup/fe_test/test_fm.csv')
+
+pred['index'] = test_.index
+pred2 = pred.groupby('index').mean()
